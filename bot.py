@@ -8,6 +8,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+import os
 
 # Enable logging
 logging.basicConfig(
@@ -85,7 +86,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Main function
 def main():
-    application = Application.builder().token("YOUR_BOT_TOKEN_HERE").build()
+    application = Application.builder().token(os.getenv("BOT_TOKEN")).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
