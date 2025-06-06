@@ -1,95 +1,97 @@
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+import logging
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackContext,
+    ContextTypes,
+    filters,
+)
 
-# Mixed challenge types
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Sample challenges (can be expanded)
 challenges = [
-    {
-        "type": "riddle",
-        "question": "I’m tall when I’m young, and I’m short when I’m old. What am I?",
-        "answer": "candle"
-    },
-    {
-        "type": "location",
-        "question": "Go to the fountain at Central Park. When you're there, press ✅ Complete.",
-        "answer": "complete"
-    },
-    {
-        "type": "riddle",
-        "question": "What has to be broken before you can use it?",
-        "answer": "egg"
-    },
-    {
-        "type": "location",
-        "question": "Find the red statue outside the museum. Press ✅ Complete when you're there.",
-        "answer": "complete"
-    }
+    {"type": "riddle", "question": "I speak without a mouth and hear without ears. What am I?", "answer": "echo"},
+    {"type": "location", "question": "Go to the nearest park and press 'Complete'."},
+    {"type": "riddle", "question": "I have keys but no locks. I have space but no rooms. What am I?", "answer": "keyboard"},
+    {"type": "location", "question": "Go to a library and press 'Complete'."}
 ]
 
-# Store each user's challenge index
 user_progress = {}
 
-# Keyboard for location-based tasks
-complete_keyboard = ReplyKeyboardMarkup([["✅ Complete"]], one_time_keyboard=True, resize_keyboard=True)
-
-def start(update: Update, context: CallbackContext) -> None:
+# Command: /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_progress[user_id] = 0
-    send_challenge(update, context, user_id)
+    await send_challenge(update, context, user_id)
 
-def send_challenge(update: Update, context: CallbackContext, user_id: int):
+# Function: send next challenge
+async def send_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     index = user_progress[user_id]
     if index >= len(challenges):
-        update.message.reply_text("🎉 You’ve completed all tasks! Well done!", reply_markup=ReplyKeyboardRemove())
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🎉 Congratulations! You’ve completed all challenges.")
         return
 
     challenge = challenges[index]
+
     if challenge["type"] == "riddle":
-        update.message.reply_text(f"🧠 Riddle #{index + 1}:\n{challenge['question']}", reply_markup=ReplyKeyboardRemove())
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"🧩 Riddle:\n{challenge['question']}")
     elif challenge["type"] == "location":
-        update.message.reply_text(f"📍 Task #{index + 1}:\n{challenge['question']}", reply_markup=complete_keyboard)
+        keyboard = ReplyKeyboardMarkup(
+            [[KeyboardButton("✅ Complete")]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"📍 Task:\n{challenge['question']}", reply_markup=keyboard)
 
-def handle_message(update: Update, context: CallbackContext) -> None:
+# Command: /help
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Send your answers to riddles, or press ✅ Complete after visiting the required location.")
+
+# Message handler
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text.strip().lower()
-
     if user_id not in user_progress:
-        update.message.reply_text("Send /start to begin the Amazing Race.")
+        await update.message.reply_text("Please start the race with /start.")
         return
 
     index = user_progress[user_id]
-    challenge = challenges[index]
-
-    if challenge["type"] == "riddle" and text == challenge["answer"]:
-        user_progress[user_id] += 1
-        update.message.reply_text("✅ Correct! On to the next one...")
-        send_challenge(update, context, user_id)
-    elif challenge["type"] == "location" and text in ["✅ complete", "complete"]:
-        user_progress[user_id] += 1
-        update.message.reply_text("📍 Task confirmed complete! Here's your next challenge:")
-        send_challenge(update, context, user_id)
-    else:
-        update.message.reply_text("❌ Not quite! Try again or complete the task.")
-
-def help_command(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text("Send /start to begin. For location tasks, press '✅ Complete' once you're at the spot!")
-
-def main():
-    import os
-    TOKEN = os.environ.get("BOT_TOKEN")
-    if not TOKEN:
-        print("❌ Error: BOT_TOKEN environment variable not set.")
+    if index >= len(challenges):
         return
 
-    updater = Updater(TOKEN)
-    dispatcher = updater.dispatcher
+    challenge = challenges[index]
+    text = update.message.text.strip().lower()
 
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    if challenge["type"] == "riddle":
+        if text == challenge["answer"].lower():
+            user_progress[user_id] += 1
+            await update.message.reply_text("✅ Correct!")
+            await send_challenge(update, context, user_id)
+        else:
+            await update.message.reply_text("❌ Try again!")
+    elif challenge["type"] == "location":
+        if text == "✅ complete" or text == "complete":
+            user_progress[user_id] += 1
+            await update.message.reply_text("📍 Task marked complete.")
+            await send_challenge(update, context, user_id)
+        else:
+            await update.message.reply_text("Please press '✅ Complete' after reaching the location.")
 
-    updater.start_polling()
-    print("Amazing Race Bot is running...")
-    updater.idle()
+# Main function
+def main():
+    application = Application.builder().token("YOUR_BOT_TOKEN_HERE").build()
 
-if __name__ == '__main__':
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
     main()
